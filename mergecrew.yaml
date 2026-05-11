@@ -1,0 +1,120 @@
+# Mergecrew lifecycle for the sample app.
+#
+# Stripped-down compared to the default that Mergecrew ships with:
+# no Observation / Bug-triage / Doc-writer workflow, so a demo run
+# finishes in minutes instead of dragging through a full post-deploy
+# review. Add those back from Mergecrew's lifecycle editor once the
+# round-trip works.
+version: 1
+lifecycle:
+  workflows:
+    - id: discovery
+      description: |
+        Reads open issues from the tracker and recalls memory from
+        prior runs. Produces a short list of intents to work on.
+      agents: [discovery]
+      out: [pm]
+    - id: pm
+      description: |
+        Translates each intent into a one-paragraph spec the engineer
+        can implement in a single run.
+      agents: [pm]
+      out: [implementation]
+      transitions:
+        - to: implementation
+          when: "true"
+          gate: auto
+    - id: implementation
+      description: |
+        Edits the repo, runs typecheck and tests, commits to a feature
+        branch, and opens a PR.
+      agents: [frontend_engineer]
+      out: [qa]
+    - id: qa
+      description: |
+        Independent verification. Runs install, typecheck, and unit
+        tests against the PR branch.
+      agents: [qa]
+      out: [deploy_dev]
+      transitions:
+        - to: deploy_dev
+          when: "tests.passed"
+          gate: auto
+        - to: pm
+          when: "tests.failed"
+          gate: auto
+    - id: deploy_dev
+      description: |
+        Promotes the PR branch to the Vercel preview environment via
+        the github-actions deploy adapter and posts the preview URL
+        back to the PR.
+      agents: [sre]
+      out: []
+  human_gates:
+    production_promote: require-approval
+
+agents:
+  discovery:
+    kind: Discovery
+    description: Surfaces what is worth working on today.
+    systemPrompt: |
+      You are the Discovery agent. List recent open issues from the
+      tracker. Output a concise prioritized list of intents (1–3
+      items) for this demo run. For each, include a one-line title
+      and the source issue id.
+    skills: [tracker.list_issues, memory.recall, llm.summarize]
+
+  pm:
+    kind: PM
+    description: Turns intents into one-paragraph specs.
+    systemPrompt: |
+      You receive Discovery's intents and produce 1 spec per intent
+      for the frontend engineer. Each spec: title (imperative, ≤ 60
+      chars), one paragraph of motivation, one paragraph of scope,
+      and 2–3 acceptance criteria. Store the specs in memory.
+    skills: [llm.draft_spec, memory.recall, memory.store]
+
+  frontend_engineer:
+    kind: FrontendEngineer
+    description: Implements UI changes against the spec.
+    systemPrompt: |
+      You are the Frontend Engineer. Recall the spec, read the
+      relevant files, make the smallest correct change, run
+      typecheck and unit tests, then commit on a feature branch.
+      Open a PR with the spec title as the PR title.
+    skills:
+      - repo.read_file
+      - repo.write_file
+      - repo.list_paths
+      - repo.search
+      - build.run_typecheck
+      - build.run_unit_tests
+      - repo.git.commit
+      - repo.git.create_branch
+      - repo.git.open_pr
+
+  qa:
+    kind: QA
+    description: Independent verification of the PR.
+    systemPrompt: |
+      You are QA. Run install, typecheck, and unit tests against the
+      PR branch. Report each step's status. Do not edit code.
+    skills:
+      - build.run_install
+      - build.run_typecheck
+      - build.run_unit_tests
+
+  sre:
+    kind: SRE
+    description: Promotes the PR branch to Vercel preview.
+    systemPrompt: |
+      You are the SRE agent. Trigger deploy.dev for the current
+      branch, poll deploy.status until it terminates, and post the
+      preview URL back to the PR via repo.git.comment_pr.
+    skills:
+      - deploy.dev
+      - deploy.status
+      - deploy.url_for_branch
+      - repo.git.comment_pr
+
+skills: {}

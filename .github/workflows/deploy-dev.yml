@@ -1,0 +1,54 @@
+# Deploy the current branch as a Vercel preview.
+#
+# Mergecrew's github-actions deploy adapter triggers this via
+# `workflow_dispatch` and reads the resulting preview URL out of the
+# job's `deploy-url` output. The adapter knows nothing about Vercel
+# directly — it just dispatches the workflow and watches for status.
+#
+# Required secrets (set under repo Settings → Secrets and variables):
+#   VERCEL_TOKEN          — personal token from vercel.com/account/tokens
+#   VERCEL_ORG_ID         — `vercel env pull` to discover or copy from .vercel/project.json
+#   VERCEL_PROJECT_ID     — same source as VERCEL_ORG_ID
+
+name: deploy-dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ref to deploy
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-url: ${{ steps.vercel.outputs.preview-url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+      - name: Pull Vercel env
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+      - name: Build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --token=$VERCEL_TOKEN
+      - name: Deploy
+        id: vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          url=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
+          echo "preview-url=$url" >> "$GITHUB_OUTPUT"
+          echo "Preview deployed: $url"
